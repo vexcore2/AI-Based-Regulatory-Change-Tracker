@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 import google.generativeai as genai
-import json
 
 app = FastAPI(title="AI Regulatory Change Tracker")
 
-# Allow your Framer frontend to fetch from this API
+# Allow Framer frontend to fetch
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,49 +17,53 @@ app.add_middleware(
 # Configure Google AI API key
 genai.configure(api_key="AIzaSyBWt4hnw0NN9fxNbi9mf5BSmfTXPjVVut0")
 
+# Replace with your official regulatory API
+API_SOURCE = "https://YOUR-3RD-PARTY-REGULATORY-API.com/latest_updates"
+
 @app.get("/updates")
 async def get_updates():
     """
-    Fetch latest regulatory updates from Google AI.
-    Always returns JSON in format:
-    {"updates": [ {country, rule, date, summary, link}, ... ]}
+    Fetch live regulatory updates, summarize with AI, return JSON for dashboard.
     """
     try:
-        prompt = (
-            "Give the latest regulatory finance updates across major countries. "
-            "Return strictly valid JSON only with fields: country, rule, date, summary, link. "
-            "Example format: "
-            "{\"updates\": [{\"country\": \"USA\", \"rule\": \"New rule\", \"date\": \"YYYY-MM-DD\", "
-            "\"summary\": \"...\", \"link\": \"...\"}]}"
-        )
+        # Fetch official data
+        response = requests.get(API_SOURCE)
+        response.raise_for_status()
+        data = response.json()
 
-        response = genai.chat.create(
-            model="chat-bison-001",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-        )
+        updates = []
+        for item in data.get("updates", []):
+            country = item.get("country")
+            rule = item.get("rule")
+            date = item.get("date")
+            link = item.get("link", "")
 
-        # Get text content from AI
-        content = response.last or response.candidates[0].content
+            # Use AI only to summarize the rule
+            try:
+                prompt = (
+                    f"Summarize this financial regulatory update in 1-2 sentences: {rule}"
+                )
+                ai_resp = genai.chat.create(
+                    model="chat-bison-001",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                )
+                summary = ai_resp.last or ai_resp.candidates[0].content
+            except:
+                summary = rule  # fallback to original text if AI fails
 
-        try:
-            updates = json.loads(content)["updates"]
-        except:
-            # Fallback if AI output is invalid
-            updates = [
-                {
-                    "country": "US",
-                    "rule": "Mock SEC update for testing",
-                    "date": "2025-08-20",
-                    "summary": "This is a fallback mock update",
-                    "link": ""
-                }
-            ]
+            updates.append({
+                "country": country,
+                "rule": rule,
+                "date": date,
+                "summary": summary,
+                "link": link
+            })
 
         return {"updates": updates}
 
     except Exception as e:
-        # Return fallback update if anything goes wrong
+        # Return fallback mock update if API fails
         return {"updates": [
             {
                 "country": "US",
@@ -72,4 +76,4 @@ async def get_updates():
 
 @app.get("/")
 async def root():
-    return {"message": "FastAPI with Google AI is working! Connect your dashboard to /updates"}
+    return {"message": "FastAPI with Google AI and official regulatory API is working! Connect your dashboard to /updates"}
