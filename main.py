@@ -1,79 +1,60 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import google.generativeai as genai
-import asyncio
-import json
-import re
-import logging
 
-# 🔑 Your Gemini API Key
-genai.configure(api_key="AIzaSyBWt4hnw0NN9fxNbi9mf5BSmfTXPjVVut0")
+app = FastAPI(title="AI Regulatory Change Tracker")
 
-app = FastAPI()
-
-# Allow frontend (Framer or React) to connect
+# Allow your Framer frontend to fetch from this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # you can restrict to your Framer URL later
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-latest_updates = {"updates": []}
-
-async def fetch_data_from_gemini():
-    global latest_updates
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(
-            """
-            Give me the latest 5 financial regulatory updates from around the world
-            in STRICT JSON format. 
-            Do not add explanations, text, or markdown. 
-            Output ONLY this format:
-
-            [
-              {"country": "USA", "rule": "SEC introduces new disclosure rules", "date": "2025-08-19"},
-              {"country": "UK", "rule": "FCA announces crypto regulations", "date": "2025-08-19"}
-            ]
-            """
-        )
-
-        text = response.text.strip()
-
-        # ✅ Extract JSON if extra text is included
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if match:
-            text = match.group(0)
-
-        # ✅ Parse JSON safely
-        data = json.loads(text)
-        latest_updates = {"updates": data}
-        logging.info(f"✅ Data updated: {latest_updates}")
-
-    except Exception as e:
-        logging.warning(f"⚠️ Could not parse JSON, storing raw text. Error: {e}")
-        latest_updates = {
-            "updates": [
-                {"country": "N/A", "rule": text if 'text' in locals() else "No response", "date": "N/A"}
-            ]
-        }
-
-# Background task to refresh data every 2 minutes
-async def refresh_data():
-    while True:
-        await fetch_data_from_gemini()
-        await asyncio.sleep(120)
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(refresh_data())
-
-@app.get("/")
-def read_root():
-    return {"message": "Hello, FastAPI is working!"}
+# Configure Google AI API key
+genai.configure(api_key="AIzaSyBWt4hnw0NN9fxNbi9mf5BSmfTXPjVVut0")
 
 @app.get("/updates")
-def get_updates():
-    return latest_updates
+async def get_updates():
+    """
+    Fetch the latest regulatory updates from Google Generative AI.
+    Returns JSON in the format:
+    {
+      "updates": [
+        {"country": "USA", "rule": "New rule", "date": "2025-08-19", "summary": "...", "link": "..."},
+        ...
+      ]
+    }
+    """
+    try:
+        # Example prompt to fetch regulatory updates
+        prompt = (
+            "Give the latest regulatory updates in finance across major countries. "
+            "Return in JSON format with: country, rule, date, summary, link."
+        )
+        response = genai.chat.create(
+            model="chat-bison-001",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+        )
+
+        # Parse the response safely
+        content = response.last or response.candidates[0].content
+        import json
+        try:
+            updates = json.loads(content)["updates"]
+        except:
+            # fallback if AI response is not perfect JSON
+            updates = []
+
+        return {"updates": updates}
+
+    except Exception as e:
+        return {"updates": [], "error": str(e)}
+
+# Test endpoint
+@app.get("/")
+async def root():
+    return {"message": "FastAPI with Google AI is working! Connect your dashboard to /updates"}
